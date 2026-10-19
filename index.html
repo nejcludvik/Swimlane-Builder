@@ -113,13 +113,16 @@
             box-sizing: border-box;
         }
 
+        /* Process Shape: Soft Sky Blue Fill + Slate Dark Border */
         .shape.process {
             border: 2px solid #1e293b;
-            background: white;
+            background: #f0f9ff;
             border-radius: 0.5rem;
-            box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+            color: #0f172a;
         }
 
+        /* Decision Shape: SVG Diamond with Exact Matching Outline + Shadow */
         .shape.decision {
             width: 140px;
             height: 100px;
@@ -127,6 +130,8 @@
             background: transparent;
             border: none;
             box-shadow: none;
+            filter: drop-shadow(0 4px 6px rgba(0, 0, 0, 0.1));
+            color: #0f172a;
         }
 
         .decision-svg {
@@ -136,10 +141,29 @@
             height: 100%;
             z-index: 1;
             pointer-events: none;
-            filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.08));
         }
 
-        /* Centered Shape Content Wrapper supporting multiline text via Enter key */
+        /* Free Text Label Style */
+        .shape.text-label {
+            min-height: 28px;
+            min-width: 40px;
+            padding: 2px 6px;
+            background: transparent;
+            border: 1px dashed transparent;
+            box-shadow: none;
+            color: #1e293b;
+            font-weight: 600;
+            font-size: 13px;
+            z-index: 15;
+        }
+
+        .shape.text-label:hover {
+            border-color: #cbd5e1;
+            background: rgba(255, 255, 255, 0.9);
+            border-radius: 4px;
+        }
+
+        /* Centered Shape Content Wrapper */
         .shape-content {
             position: relative;
             z-index: 2;
@@ -270,13 +294,16 @@
             <input type="file" id="file-input" accept=".json" class="hidden" onchange="loadDiagram(event)">
         </div>
 
-        <!-- Add Shapes -->
+        <!-- Add Shapes & Free Text -->
         <div class="flex gap-2 border-r pr-3">
             <button onclick="addShape('process')" class="px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded border border-blue-200 text-sm font-medium transition-colors">
                 + Process
             </button>
-            <button onclick="addShape('decision')" class="px-3 py-1.5 bg-green-50 hover:bg-green-100 text-green-700 rounded border border-green-200 text-sm font-medium transition-colors">
+            <button onclick="addShape('decision')" class="px-3 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-800 rounded border border-amber-200 text-sm font-medium transition-colors">
                 + Decision
+            </button>
+            <button onclick="addShape('text')" title="Add YES / NO or Annotation Text" class="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-800 rounded border border-gray-300 text-sm font-semibold transition-colors">
+                + Text Label
             </button>
         </div>
 
@@ -380,6 +407,7 @@
             addLane('Embedded Sys Developer');
         };
 
+        // 1. Save & Load Functions
         function saveDiagram() {
             const colWidth = document.getElementById('colWidth').value;
             const rowHeight = document.getElementById('rowHeight').value;
@@ -396,9 +424,13 @@
 
             const shapes = [];
             document.querySelectorAll('.shape').forEach(el => {
+                let shapeType = 'process';
+                if (el.classList.contains('decision')) shapeType = 'decision';
+                else if (el.classList.contains('text-label')) shapeType = 'text';
+
                 shapes.push({
                     id: el.id,
-                    type: el.classList.contains('process') ? 'process' : 'decision',
+                    type: shapeType,
                     left: el.style.left,
                     top: el.style.top,
                     zIndex: el.style.zIndex,
@@ -487,12 +519,13 @@
             const shapeId = sData.id;
             
             const shape = document.createElement('div');
-            shape.className = `shape ${sData.type}`;
+            shape.className = `shape ${sData.type === 'text' ? 'text-label' : sData.type}`;
             shape.style.left = sData.left || '40px';
             shape.style.top = sData.top || '40px';
             shape.style.zIndex = sData.zIndex || 100;
             shape.id = shapeId;
 
+            // Decision Shape crisp SVG Outline with exact matching 2px Slate border & Soft Amber fill (#fffbeb)
             if (sData.type === 'decision') {
                 const svgNS = "http://www.w3.org/2000/svg";
                 const svg = document.createElementNS(svgNS, "svg");
@@ -502,9 +535,9 @@
 
                 const polygon = document.createElementNS(svgNS, "polygon");
                 polygon.setAttribute("points", "50,2 98,50 50,98 2,50");
-                polygon.setAttribute("fill", "#ffffff");
+                polygon.setAttribute("fill", "#fffbeb");
                 polygon.setAttribute("stroke", "#1e293b");
-                polygon.setAttribute("stroke-width", "2.5");
+                polygon.setAttribute("stroke-width", "2");
 
                 svg.appendChild(polygon);
                 shape.appendChild(svg);
@@ -528,14 +561,17 @@
                 drawArrows();
             };
 
-            const ports = ['top', 'right', 'bottom', 'left'];
-            ports.forEach(portPos => {
-                const port = document.createElement('div');
-                port.className = `port ${portPos}`;
-                port.setAttribute('data-html2canvas-ignore', 'true');
-                port.onmousedown = (e) => startConnectionDrag(e, shapeId, portPos);
-                shape.appendChild(port);
-            });
+            // Only process and decision shapes get connection ports
+            if (sData.type !== 'text') {
+                const ports = ['top', 'right', 'bottom', 'left'];
+                ports.forEach(portPos => {
+                    const port = document.createElement('div');
+                    port.className = `port ${portPos}`;
+                    port.setAttribute('data-html2canvas-ignore', 'true');
+                    port.onmousedown = (e) => startConnectionDrag(e, shapeId, portPos);
+                    shape.appendChild(port);
+                });
+            }
 
             shape.appendChild(deleteBtn);
             shape.appendChild(textDiv);
@@ -544,6 +580,7 @@
             makeDraggable(shape);
         }
 
+        // 2. Selection & Alignment Functions
         function handleCanvasClick(e) {
             if (e.target.id === 'scroll-container' || e.target.id === 'diagram-wrapper' || e.target.classList.contains('lane-cell')) {
                 clearSelections();
@@ -591,6 +628,7 @@
             drawArrows();
         }
 
+        // 3. Arrow Connection & Dragging Logic
         function startConnectionDrag(e, shapeId, portName) {
             e.stopPropagation();
             e.preventDefault();
@@ -624,7 +662,7 @@
             const targetShape = elementUnderCursor ? elementUnderCursor.closest('.shape') : null;
 
             document.querySelectorAll('.shape').forEach(s => s.classList.remove('target-hover'));
-            if (targetShape && targetShape.id !== connectionStartShapeId) {
+            if (targetShape && targetShape.id !== connectionStartShapeId && !targetShape.classList.contains('text-label')) {
                 targetShape.classList.add('target-hover');
             }
         }
@@ -635,7 +673,7 @@
             const elementUnderCursor = document.elementFromPoint(e.clientX, e.clientY);
             const targetShape = elementUnderCursor ? elementUnderCursor.closest('.shape') : null;
 
-            if (targetShape && targetShape.id !== connectionStartShapeId) {
+            if (targetShape && targetShape.id !== connectionStartShapeId && !targetShape.classList.contains('text-label')) {
                 connections.push({ from: connectionStartShapeId, to: targetShape.id });
             }
 
@@ -762,6 +800,7 @@
             });
         }
 
+        // 4. Grid Management
         function updateGridSize() {
             const width = document.getElementById('colWidth').value;
             const height = document.getElementById('rowHeight').value;
@@ -860,13 +899,17 @@
 
         function addShape(type) {
             shapeCount++;
+            let defaultText = 'Process Step';
+            if (type === 'decision') defaultText = 'Decision';
+            else if (type === 'text') defaultText = 'YES';
+
             addShapeWithData({
                 id: `shape-${shapeCount}`,
                 type: type,
-                left: '40px',
-                top: '40px',
+                left: '60px',
+                top: '60px',
                 zIndex: zIndexCounter++,
-                text: type === 'process' ? 'Process Step' : 'Decision'
+                text: defaultText
             });
         }
 
