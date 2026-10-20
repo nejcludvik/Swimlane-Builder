@@ -119,7 +119,7 @@
             color: #0f172a;
         }
 
-        /* Decision Shape: SVG Diamond with Exact Matching Outline + Shadow */
+        /* Decision Shape */
         .shape.decision {
             width: 140px;
             height: 100px;
@@ -267,6 +267,24 @@
             pointer-events: none;
             z-index: 5;
             overflow: visible;
+        }
+
+        /* Interactive Arrow CSS */
+        .connection-group {
+            cursor: pointer;
+        }
+        
+        .connection-group:hover .visible-path {
+            stroke: #ef4444; /* Highlight arrow red on hover */
+        }
+
+        .delete-arrow-btn {
+            opacity: 0;
+            transition: opacity 0.15s;
+        }
+
+        .connection-group:hover .delete-arrow-btn {
+            opacity: 1;
         }
     </style>
 </head>
@@ -518,6 +536,7 @@
             shape.style.zIndex = sData.zIndex || 100;
             shape.id = shapeId;
 
+            // Decision Outline: vector-effect="non-scaling-stroke" guarantees perfectly even 2px thickness
             if (sData.type === 'decision') {
                 const svgNS = "http://www.w3.org/2000/svg";
                 const svg = document.createElementNS(svgNS, "svg");
@@ -530,6 +549,7 @@
                 polygon.setAttribute("fill", "#fffbeb");
                 polygon.setAttribute("stroke", "#1e293b");
                 polygon.setAttribute("stroke-width", "2");
+                polygon.setAttribute("vector-effect", "non-scaling-stroke");
 
                 svg.appendChild(polygon);
                 shape.appendChild(svg);
@@ -718,7 +738,7 @@
             const guidesGroup = svg.querySelector('#guides-group').outerHTML;
             svg.innerHTML = defs + guidesGroup;
 
-            connections.forEach(conn => {
+            connections.forEach((conn, index) => {
                 const fromEl = document.getElementById(conn.from);
                 const toEl = document.getElementById(conn.to);
                 
@@ -779,15 +799,65 @@
                     pathString = `M ${startX} ${startY} L ${startX} ${midY} L ${endX} ${midY} L ${endX} ${endY}`;
                 }
 
-                const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
-                path.setAttribute("d", pathString);
-                path.setAttribute("fill", "none");
-                path.setAttribute("stroke", "#475569");
-                path.setAttribute("stroke-width", "2");
-                path.setAttribute("stroke-linejoin", "round");
-                path.setAttribute("marker-end", "url(#arrowhead)");
+                // Interactive connection group (Allows hover + deletion)
+                const group = document.createElementNS("http://www.w3.org/2000/svg", "g");
+                group.setAttribute("class", "connection-group");
+
+                // Transparent thicker line for easier hovering
+                const hoverPath = document.createElementNS("http://www.w3.org/2000/svg", "path");
+                hoverPath.setAttribute("d", pathString);
+                hoverPath.setAttribute("fill", "none");
+                hoverPath.setAttribute("stroke", "transparent");
+                hoverPath.setAttribute("stroke-width", "20");
+                hoverPath.style.pointerEvents = "stroke";
+
+                // The visually rendered arrow
+                const visiblePath = document.createElementNS("http://www.w3.org/2000/svg", "path");
+                visiblePath.setAttribute("class", "visible-path");
+                visiblePath.setAttribute("d", pathString);
+                visiblePath.setAttribute("fill", "none");
+                visiblePath.setAttribute("stroke", "#475569");
+                visiblePath.setAttribute("stroke-width", "2");
+                visiblePath.setAttribute("stroke-linejoin", "round");
+                visiblePath.setAttribute("marker-end", "url(#arrowhead)");
+
+                // The delete button in the middle of the routing path
+                const btnX = (startX + endX) / 2;
+                const btnY = (startY + endY) / 2;
+
+                const btnGroup = document.createElementNS("http://www.w3.org/2000/svg", "g");
+                btnGroup.setAttribute("class", "delete-arrow-btn");
+                btnGroup.setAttribute("transform", `translate(${btnX}, ${btnY})`);
+
+                const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+                circle.setAttribute("r", "10");
+                circle.setAttribute("fill", "#ef4444");
+
+                const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
+                text.setAttribute("x", "0");
+                text.setAttribute("y", "4");
+                text.setAttribute("fill", "white");
+                text.setAttribute("font-size", "14");
+                text.setAttribute("font-weight", "bold");
+                text.setAttribute("text-anchor", "middle");
+                text.textContent = "×";
+
+                btnGroup.appendChild(circle);
+                btnGroup.appendChild(text);
+
+                // Add elements to group
+                group.appendChild(hoverPath);
+                group.appendChild(visiblePath);
+                group.appendChild(btnGroup);
+
+                // Delete behavior
+                group.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    connections.splice(index, 1);
+                    drawArrows(); // Re-render without deleted array element
+                });
                 
-                svg.appendChild(path);
+                svg.appendChild(group);
             });
         }
 
