@@ -799,11 +799,9 @@
                     pathString = `M ${startX} ${startY} L ${startX} ${midY} L ${endX} ${midY} L ${endX} ${endY}`;
                 }
 
-                // Interactive connection group (Allows hover + deletion)
                 const group = document.createElementNS("http://www.w3.org/2000/svg", "g");
                 group.setAttribute("class", "connection-group");
 
-                // Transparent thicker line for easier hovering
                 const hoverPath = document.createElementNS("http://www.w3.org/2000/svg", "path");
                 hoverPath.setAttribute("d", pathString);
                 hoverPath.setAttribute("fill", "none");
@@ -811,7 +809,6 @@
                 hoverPath.setAttribute("stroke-width", "20");
                 hoverPath.style.pointerEvents = "stroke";
 
-                // The visually rendered arrow
                 const visiblePath = document.createElementNS("http://www.w3.org/2000/svg", "path");
                 visiblePath.setAttribute("class", "visible-path");
                 visiblePath.setAttribute("d", pathString);
@@ -821,7 +818,6 @@
                 visiblePath.setAttribute("stroke-linejoin", "round");
                 visiblePath.setAttribute("marker-end", "url(#arrowhead)");
 
-                // The delete button in the middle of the routing path
                 const btnX = (startX + endX) / 2;
                 const btnY = (startY + endY) / 2;
 
@@ -845,16 +841,14 @@
                 btnGroup.appendChild(circle);
                 btnGroup.appendChild(text);
 
-                // Add elements to group
                 group.appendChild(hoverPath);
                 group.appendChild(visiblePath);
                 group.appendChild(btnGroup);
 
-                // Delete behavior
                 group.addEventListener('click', (e) => {
                     e.stopPropagation();
                     connections.splice(index, 1);
-                    drawArrows(); // Re-render without deleted array element
+                    drawArrows(); 
                 });
                 
                 svg.appendChild(group);
@@ -961,14 +955,43 @@
         function addShape(type) {
             shapeCount++;
             let defaultText = 'Process Step';
-            if (type === 'decision') defaultText = 'Decision';
-            else if (type === 'text') defaultText = 'YES';
+            let offsetX = 60; // Half of process width
+            let offsetY = 30; // Half of process height
+            
+            if (type === 'decision') {
+                defaultText = 'Decision';
+                offsetX = 70;
+                offsetY = 50;
+            } else if (type === 'text') {
+                defaultText = 'YES';
+                offsetX = 20;
+                offsetY = 14;
+            }
+
+            // Calculate center of currently visible screen relative to shapes-container
+            const scrollContainer = document.getElementById('scroll-container');
+            const scrollRect = scrollContainer.getBoundingClientRect();
+            
+            // Get center point of visible viewport
+            const visibleCenterX = scrollRect.left + (scrollRect.width / 2);
+            const visibleCenterY = scrollRect.top + (scrollRect.height / 2);
+            
+            // Map viewport point to shapes-container coordinates
+            const shapesContainer = document.getElementById('shapes-container');
+            const shapesRect = shapesContainer.getBoundingClientRect();
+            
+            let leftPos = visibleCenterX - shapesRect.left - offsetX;
+            let topPos = visibleCenterY - shapesRect.top - offsetY;
+
+            // Prevent shape from spawning off-screen if scrolled far left/top
+            if (leftPos < 20) leftPos = 20;
+            if (topPos < 20) topPos = 20;
 
             addShapeWithData({
                 id: `shape-${shapeCount}`,
                 type: type,
-                left: '60px',
-                top: '60px',
+                left: leftPos + 'px',
+                top: topPos + 'px',
                 zIndex: zIndexCounter++,
                 text: defaultText
             });
