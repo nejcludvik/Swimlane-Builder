@@ -1,0 +1,287 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="theme-color" content="#0f766e" />
+    <title>MESI Swimlane Builder</title>
+    <link rel="stylesheet" href="styles.css" />
+    <script src="script.js" defer></script>
+  </head>
+  <body>
+    <header class="app-header">
+      <div class="brand">
+        <span class="brand-icon" aria-hidden="true">▤</span>
+        <div>
+          <strong>Swimlane Builder</strong
+          ><small>Process design workspace</small>
+        </div>
+      </div>
+      <div id="save-status" role="status" aria-live="polite">Ready</div>
+      <button id="help-button" class="quiet">Help & shortcuts</button>
+    </header>
+    <nav class="toolbar" aria-label="Diagram tools">
+      <div class="tool-group">
+        <button data-action="new">New</button
+        ><button data-action="open">Open JSON</button
+        ><button data-action="save" class="primary">Save JSON</button
+        ><input
+          id="file-input"
+          type="file"
+          accept=".json,application/json"
+          hidden
+        />
+      </div>
+      <div class="tool-group">
+        <button id="undo-button" data-action="undo" title="Undo (Ctrl/Cmd+Z)">
+          ↶ Undo</button
+        ><button
+          id="redo-button"
+          data-action="redo"
+          title="Redo (Ctrl/Cmd+Shift+Z)"
+        >
+          ↷ Redo
+        </button>
+      </div>
+      <div class="tool-group">
+        <button data-add="process">+ Process</button
+        ><button data-add="decision">◇ Decision</button
+        ><button data-add="start">◯ Start</button
+        ><button data-add="end">◉ End</button
+        ><button data-add="text">T Label</button>
+      </div>
+      <div class="tool-group">
+        <button data-action="stage">+ Stage</button
+        ><button data-action="lane">+ Lane</button>
+      </div>
+      <div class="tool-group export-group">
+        <button data-action="png">PNG</button
+        ><button data-action="svg">SVG</button
+        ><button data-action="pdf">PDF / Print</button>
+      </div>
+    </nav>
+    <main>
+      <section class="workspace" aria-label="Diagram workspace">
+        <div class="canvas-tools">
+          <div>
+            <button
+              id="select-tool"
+              class="active"
+              data-tool="select"
+              title="Select and move (V)"
+            >
+              Select</button
+            ><button
+              id="pan-tool"
+              data-tool="pan"
+              title="Pan (H or hold Space)"
+            >
+              Pan</button
+            ><button
+              id="connect-tool"
+              data-tool="connect"
+              title="Connect two shapes (C)"
+            >
+              Connect
+            </button>
+          </div>
+          <div class="zoom-controls">
+            <button data-action="zoom-out" aria-label="Zoom out">−</button
+            ><button
+              id="zoom-label"
+              data-action="reset-zoom"
+              title="Reset to 100%"
+            >
+              100%</button
+            ><button data-action="zoom-in" aria-label="Zoom in">+</button
+            ><button data-action="fit">Fit diagram</button>
+          </div>
+        </div>
+        <div
+          id="viewport"
+          tabindex="0"
+          aria-label="Diagram canvas. Select a shape, use arrow keys to move it, or double-click text to edit."
+        >
+          <div id="canvas-spacer">
+            <svg
+              id="diagram"
+              xmlns="http://www.w3.org/2000/svg"
+              aria-label="Swimlane diagram"
+            ></svg>
+          </div>
+        </div>
+        <footer>
+          <span id="context-hint"
+            >Drag shapes to move · Shift-click to select more · Double-click
+            text to edit</span
+          ><span id="diagram-stats"></span>
+        </footer>
+      </section>
+      <aside id="inspector" aria-label="Diagram settings and selection">
+        <details open>
+          <summary>Document</summary>
+          <div class="section-body">
+            <label>Title<input id="doc-title" maxlength="200" /></label>
+            <div class="two-col">
+              <label
+                >Reference<input
+                  id="doc-reference"
+                  maxlength="100"
+                  placeholder="SW-SOP-001" /></label
+              ><label
+                >Revision<input
+                  id="doc-revision"
+                  maxlength="50"
+                  placeholder="1.0"
+              /></label>
+            </div>
+            <label>Date<input id="doc-date" type="date" /></label
+            ><label class="check"
+              ><input id="doc-footer" type="checkbox" />Include document footer
+              in exports</label
+            >
+          </div>
+        </details>
+        <details open>
+          <summary>Selection</summary>
+          <div class="section-body" id="selection-panel">
+            <p class="muted">Select a shape or connector to edit it.</p>
+          </div>
+        </details>
+        <details>
+          <summary>Stages & responsibilities</summary>
+          <div class="section-body">
+            <div class="two-col">
+              <label
+                >Column width<input
+                  id="col-width"
+                  type="number"
+                  min="150"
+                  max="800"
+                  step="10" /></label
+              ><label
+                >Row height<input
+                  id="row-height"
+                  type="number"
+                  min="100"
+                  max="800"
+                  step="10"
+              /></label>
+            </div>
+            <p class="muted">
+              Reordering carries the associated shapes with it.
+            </p>
+            <h3>Stages</h3>
+            <div id="stage-list"></div>
+            <h3>Responsibilities</h3>
+            <div id="lane-list"></div>
+          </div>
+        </details>
+        <details>
+          <summary>Arrange & appearance</summary>
+          <div class="section-body">
+            <div class="button-grid">
+              <button data-align="x">Align center X</button
+              ><button data-align="y">Align center Y</button
+              ><button data-align="left">Align left</button
+              ><button data-align="top">Align top</button
+              ><button data-align="horizontal">Distribute X</button
+              ><button data-align="vertical">Distribute Y</button>
+            </div>
+            <label class="check"
+              ><input id="snap-toggle" type="checkbox" checked />Snap to shape
+              centers & grid</label
+            ><button data-action="duplicate">Duplicate selection</button
+            ><button data-action="delete" class="danger">
+              Delete selection
+            </button>
+          </div>
+        </details>
+        <details>
+          <summary>Export settings</summary>
+          <div class="section-body">
+            <label
+              >PNG resolution<select id="export-scale">
+                <option value="1">1× — standard</option>
+                <option value="2" selected>2× — high resolution</option>
+                <option value="3">3× — very high resolution</option>
+              </select></label
+            >
+            <p class="muted">
+              SVG stays sharp at any size. PDF / Print opens the browser print
+              dialog; choose Save as PDF and landscape orientation.
+            </p>
+          </div>
+        </details>
+      </aside>
+    </main>
+    <div id="toast" role="status" aria-live="polite" hidden></div>
+    <dialog id="editor-dialog">
+      <form method="dialog">
+        <h2 id="dialog-title">Edit text</h2>
+        <div id="dialog-body"></div>
+        <div id="dialog-actions" class="dialog-actions"></div>
+      </form>
+    </dialog>
+    <dialog id="help-dialog">
+      <h2>Working with diagrams</h2>
+      <div class="help-content">
+        <p>
+          <b>Create:</b> add shapes from the toolbar. Drag their bodies to move
+          them. Double-click a shape, stage, lane, or connector label to edit
+          text.
+        </p>
+        <p>
+          <b>Connect:</b> drag a blue port to another port or shape. Or choose
+          Connect, then tap the source and destination. Connector endpoints stay
+          on the chosen sides. Select a connector to set its label or drag the
+          orange handles to route it manually. Reset route restores automatic
+          obstacle avoidance.
+        </p>
+        <p>
+          <b>Arrange:</b> Shift-click shapes to select a group. Drag any
+          selected shape to move the group. Use the inspector to resize shapes,
+          change their lane/stage, reorder rows/columns, or align a group.
+        </p>
+        <p>
+          <b>Navigate:</b> use the zoom buttons or Ctrl/Cmd + mouse wheel.
+          Choose Pan or hold Space and drag. On touch screens, Pan mode supports
+          one-finger panning; select mode supports shape dragging.
+        </p>
+        <table>
+          <tr>
+            <td>Undo / Redo</td>
+            <td>Ctrl/Cmd+Z / Ctrl/Cmd+Shift+Z or Ctrl+Y</td>
+          </tr>
+          <tr>
+            <td>Save / Open</td>
+            <td>Ctrl/Cmd+S / Ctrl/Cmd+O</td>
+          </tr>
+          <tr>
+            <td>Duplicate / Select all</td>
+            <td>Ctrl/Cmd+D / Ctrl/Cmd+A</td>
+          </tr>
+          <tr>
+            <td>Move selection</td>
+            <td>Arrow keys; Shift = 10 pixels</td>
+          </tr>
+          <tr>
+            <td>Delete / Cancel</td>
+            <td>Delete or Backspace / Escape</td>
+          </tr>
+          <tr>
+            <td>Select / Connect / Pan</td>
+            <td>V / C / H</td>
+          </tr>
+        </table>
+        <p>
+          <b>Recovery:</b> changes are saved in this browser automatically. Save
+          JSON to keep a portable copy. Old diagram JSON files are supported.
+          Keep only one active editing tab to avoid overwriting its recovery
+          copy.
+        </p>
+      </div>
+      <button id="close-help" class="primary">Close</button>
+    </dialog>
+  </body>
+</html>

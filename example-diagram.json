@@ -1,0 +1,180 @@
+{
+  "format": "mesi-swimlane",
+  "version": 2,
+  "document": {
+    "title": "Process review and approval",
+    "reference": "EXAMPLE-001",
+    "revision": "1.0",
+    "date": "2026-10-29",
+    "showFooter": true
+  },
+  "colWidth": 300,
+  "rowHeight": 200,
+  "stages": [
+    {
+      "id": "stage-1",
+      "title": "Prepare"
+    },
+    {
+      "id": "stage-2",
+      "title": "Review"
+    },
+    {
+      "id": "stage-3",
+      "title": "Release"
+    }
+  ],
+  "lanes": [
+    {
+      "id": "lane-1",
+      "title": "Process owner"
+    },
+    {
+      "id": "lane-2",
+      "title": "Reviewer"
+    },
+    {
+      "id": "lane-3",
+      "title": "Approver"
+    }
+  ],
+  "shapes": [
+    {
+      "id": "n1",
+      "type": "start",
+      "text": "Start",
+      "stageId": "stage-1",
+      "laneId": "lane-1",
+      "x": 80,
+      "y": 24,
+      "width": 140,
+      "height": 54,
+      "z": 0
+    },
+    {
+      "id": "n2",
+      "type": "process",
+      "text": "Prepare evidence",
+      "stageId": "stage-1",
+      "laneId": "lane-1",
+      "x": 60,
+      "y": 105,
+      "width": 180,
+      "height": 70,
+      "z": 1
+    },
+    {
+      "id": "n3",
+      "type": "process",
+      "text": "Review evidence",
+      "stageId": "stage-2",
+      "laneId": "lane-2",
+      "x": 60,
+      "y": 50,
+      "width": 180,
+      "height": 70,
+      "z": 2
+    },
+    {
+      "id": "n4",
+      "type": "decision",
+      "text": "Approved?",
+      "stageId": "stage-2",
+      "laneId": "lane-3",
+      "x": 60,
+      "y": 35,
+      "width": 180,
+      "height": 130,
+      "z": 3
+    },
+    {
+      "id": "n5",
+      "type": "process",
+      "text": "Release process",
+      "stageId": "stage-3",
+      "laneId": "lane-3",
+      "x": 60,
+      "y": 30,
+      "width": 180,
+      "height": 70,
+      "z": 4
+    },
+    {
+      "id": "n6",
+      "type": "end",
+      "text": "End",
+      "stageId": "stage-3",
+      "laneId": "lane-3",
+      "x": 80,
+      "y": 125,
+      "width": 140,
+      "height": 54,
+      "z": 5
+    }
+  ],
+  "connections": [
+    {
+      "id": "connection-0",
+      "from": "n1",
+      "to": "n2",
+      "fromPort": "bottom",
+      "toPort": "top",
+      "label": "",
+      "points": []
+    },
+    {
+      "id": "connection-1",
+      "from": "n2",
+      "to": "n3",
+      "fromPort": "right",
+      "toPort": "left",
+      "label": "",
+      "points": []
+    },
+    {
+      "id": "connection-2",
+      "from": "n3",
+      "to": "n4",
+      "fromPort": "bottom",
+      "toPort": "top",
+      "label": "",
+      "points": []
+    },
+    {
+      "id": "connection-3",
+      "from": "n4",
+      "to": "n5",
+      "fromPort": "right",
+      "toPort": "left",
+      "label": "YES",
+      "points": []
+    },
+    {
+      "id": "connection-4",
+      "from": "n4",
+      "to": "n2",
+      "fromPort": "left",
+      "toPort": "left",
+      "label": "NO — revise",
+      "points": [
+        {
+          "x": 25,
+          "y": 500
+        },
+        {
+          "x": 25,
+          "y": 140
+        }
+      ]
+    },
+    {
+      "id": "connection-5",
+      "from": "n5",
+      "to": "n6",
+      "fromPort": "bottom",
+      "toPort": "top",
+      "label": "",
+      "points": []
+    }
+  ]
+}
