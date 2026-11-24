@@ -123,6 +123,17 @@ summary:focus-visible {
   padding-right: 9px;
   border-right: 1px solid var(--border);
 }
+.toolbar select {
+  width: auto;
+  min-height: 34px;
+  padding: 6px 8px;
+  border-radius: 7px;
+  color: #244058;
+  cursor: pointer;
+}
+[hidden] {
+  display: none !important;
+}
 .export-group {
   margin-left: auto;
   border: 0;
