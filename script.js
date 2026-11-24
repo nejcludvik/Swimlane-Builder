@@ -626,6 +626,8 @@
     svg.setAttribute("viewBox", `0 0 ${bounds.width} ${bounds.height}`);
     svg.setAttribute("width", bounds.width);
     svg.setAttribute("height", bounds.height);
+    // Exports carry the font on the SVG itself; the editor stylesheet is not included.
+    svg.setAttribute("font-family", "Arial, Helvetica, sans-serif");
     svg.style.transform = `scale(${zoom})`;
     $("canvas-spacer").style.width = `${bounds.width * zoom}px`;
     $("canvas-spacer").style.height = `${bounds.height * zoom}px`;
