@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <meta name="theme-color" content="#0f766e" />
-    <title>MESI Swimlane Builder</title>
+    <title>MESI Swimlane & Flowchart Builder</title>
     <link rel="stylesheet" href="styles.css" />
     <script src="script.js" defer></script>
   </head>
@@ -51,8 +51,16 @@
         ><button data-add="text">T Label</button>
       </div>
       <div class="tool-group">
-        <button data-action="stage">+ Stage</button
-        ><button data-action="lane">+ Lane</button>
+        <select
+          id="layout-select"
+          aria-label="Diagram layout"
+          title="Diagram layout"
+        >
+          <option value="horizontal">▤ Horizontal swimlanes</option>
+          <option value="vertical">▥ Vertical swimlanes</option>
+          <option value="flowchart">◇ Flowchart (no lanes)</option></select
+        ><button data-action="stage" class="grid-only">+ Stage</button
+        ><button data-action="lane" class="grid-only">+ Lane</button>
       </div>
       <div class="tool-group export-group">
         <button data-action="png">PNG</button
@@ -148,19 +156,21 @@
             <p class="muted">Select a shape or connector to edit it.</p>
           </div>
         </details>
-        <details>
+        <details class="grid-only">
           <summary>Stages & responsibilities</summary>
           <div class="section-body">
             <div class="two-col">
               <label
-                >Column width<input
+                ><span id="col-width-label">Stage width</span
+                ><input
                   id="col-width"
                   type="number"
-                  min="150"
+                  min="100"
                   max="800"
                   step="10" /></label
               ><label
-                >Row height<input
+                ><span id="row-height-label">Responsibility height</span
+                ><input
                   id="row-height"
                   type="number"
                   min="100"
@@ -168,7 +178,7 @@
                   step="10"
               /></label>
             </div>
-            <p class="muted">
+            <p class="muted" id="grid-order-note">
               Reordering carries the associated shapes with it.
             </p>
             <h3>Stages</h3>
@@ -242,6 +252,13 @@
           <b>Arrange:</b> Shift-click shapes to select a group. Drag any
           selected shape to move the group. Use the inspector to resize shapes,
           change their lane/stage, reorder rows/columns, or align a group.
+        </p>
+        <p>
+          <b>Layout:</b> use the layout menu in the toolbar to switch between
+          horizontal swimlanes, vertical swimlanes, and a plain flowchart with
+          no lanes. Switching orientation rotates the diagram so the flow
+          follows the lanes. Flowchart mode only hides the lanes, so you can
+          switch back without losing stage or responsibility assignments.
         </p>
         <p>
           <b>Navigate:</b> use the zoom buttons or Ctrl/Cmd + mouse wheel.
