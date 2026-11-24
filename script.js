@@ -8,6 +8,9 @@
     TOP = 82,
     PAD = 32;
   const TYPES = new Set(["process", "decision", "start", "end", "text"]);
+  const LAYOUTS = ["horizontal", "vertical", "flowchart"];
+  const GRID_MIN = 100,
+    GRID_MAX = 800;
   const PORTS = ["top", "right", "bottom", "left"];
   const clone = (x) => JSON.parse(JSON.stringify(x));
   const uid = (prefix) =>
@@ -32,10 +35,13 @@
     clipboard = null,
     tabConflict = false;
   const measure = document.createElement("canvas").getContext("2d");
-  function initial() {
+  function initial(layoutName = "horizontal") {
+    const vertical = layoutName === "vertical";
     return {
       format: "mesi-swimlane",
       version: 2,
+      mode: layoutName === "flowchart" ? "flowchart" : "swimlane",
+      orientation: vertical ? "vertical" : "horizontal",
       document: {
         title: "Untitled process",
         reference: "",
@@ -43,8 +49,8 @@
         date: new Date().toLocaleDateString("en-CA"),
         showFooter: true,
       },
-      colWidth: 300,
-      rowHeight: 200,
+      colWidth: vertical ? 240 : 300,
+      rowHeight: vertical ? 220 : 200,
       stages: ["Project Initiation", "Development", "Verification"].map(
         (title) => ({ id: uid("stage"), title }),
       ),
@@ -91,9 +97,19 @@
     const m = {
       format: "mesi-swimlane",
       version: 2,
-      colWidth: num(raw.colWidth, 150, 800, "Column width"),
-      rowHeight: num(raw.rowHeight, 100, 800, "Row height"),
+      // Layout fields were added in 2.1; files without them open as horizontal swimlanes.
+      mode: raw.mode === "flowchart" ? "flowchart" : "swimlane",
+      orientation: raw.orientation === "vertical" ? "vertical" : "horizontal",
+      colWidth: num(raw.colWidth, GRID_MIN, GRID_MAX, "Column width"),
+      rowHeight: num(raw.rowHeight, GRID_MIN, GRID_MAX, "Row height"),
     };
+    if (raw.mode !== undefined && !["swimlane", "flowchart"].includes(raw.mode))
+      throw Error("Unknown diagram mode.");
+    if (
+      raw.orientation !== undefined &&
+      !["horizontal", "vertical"].includes(raw.orientation)
+    )
+      throw Error("Unknown swimlane orientation.");
     m.document = legacy
       ? {
           title: "Imported process",
@@ -215,10 +231,22 @@
     );
     return m;
   }
+  // Horizontal swimlanes: stages are columns and responsibilities are rows.
+  // Vertical swimlanes swap them. colWidth/rowHeight always describe screen
+  // columns/rows. Flowchart mode hides the grid but keeps the same geometry.
+  function gridAxes(m = model) {
+    return m.orientation === "vertical"
+      ? { cols: m.lanes, rows: m.stages, colKey: "laneId", rowKey: "stageId" }
+      : { cols: m.stages, rows: m.lanes, colKey: "stageId", rowKey: "laneId" };
+  }
+  function layoutName(m = model) {
+    return m.mode === "flowchart" ? "flowchart" : m.orientation;
+  }
   function position(s, m = model) {
+    const a = gridAxes(m);
     return {
-      x: m.stages.findIndex((v) => v.id === s.stageId) * m.colWidth + s.x,
-      y: m.lanes.findIndex((v) => v.id === s.laneId) * m.rowHeight + s.y,
+      x: a.cols.findIndex((v) => v.id === s[a.colKey]) * m.colWidth + s.x,
+      y: a.rows.findIndex((v) => v.id === s[a.rowKey]) * m.rowHeight + s.y,
       w: s.width,
       h: s.height,
     };
@@ -226,21 +254,62 @@
   function place(s, x, y) {
     x = Math.max(0, Math.round(x));
     y = Math.max(0, Math.round(y));
+    const a = gridAxes();
     const ci = Math.min(
-      model.stages.length - 1,
+      a.cols.length - 1,
       Math.floor((x + s.width / 2) / model.colWidth),
     );
     const ri = Math.min(
-      model.lanes.length - 1,
+      a.rows.length - 1,
       Math.floor((y + s.height / 2) / model.rowHeight),
     );
     // Preserve non-negative cell offsets near a boundary: membership follows the top-left corner.
     const col = Math.min(ci, Math.floor(x / model.colWidth)),
       row = Math.min(ri, Math.floor(y / model.rowHeight));
-    s.stageId = model.stages[col].id;
-    s.laneId = model.lanes[row].id;
+    s[a.colKey] = a.cols[col].id;
+    s[a.rowKey] = a.rows[row].id;
     s.x = x - col * model.colWidth;
     s.y = y - row * model.rowHeight;
+  }
+  // Rotate the diagram about its diagonal so the process flow follows the new
+  // lane direction. Shape centres are transposed, so centre-aligned shapes stay
+  // aligned and lane/stage membership is unchanged. Shapes stacked inside a
+  // lane end up side by side, so the new lane size is widened just enough that
+  // shapes which did not overlap before still do not overlap afterwards.
+  function transpose() {
+    const swap = { top: "left", left: "top", bottom: "right", right: "bottom" };
+    const c = model.shapes.map((s) => {
+      const p = position(s);
+      return { x: p.x + p.w / 2, y: p.y + p.h / 2, w: p.w, h: p.h };
+    });
+    const GAP = 24;
+    let scale = 1;
+    for (let i = 0; i < c.length; i++)
+      for (let j = i + 1; j < c.length; j++) {
+        const a = c[i],
+          b = c[j],
+          dx = Math.abs(a.x - b.x),
+          dy = Math.abs(a.y - b.y);
+        const wasApart = dx >= (a.w + b.w) / 2 || dy >= (a.h + b.h) / 2;
+        // After transposing, the old x distance separates the shapes vertically.
+        if (!wasApart || dx >= (a.h + b.h) / 2 || dy === 0) continue;
+        scale = Math.max(scale, ((a.w + b.w) / 2 + GAP) / dy);
+      }
+    const across = Math.min(GRID_MAX, Math.round(model.rowHeight * scale)),
+      k = across / model.rowHeight;
+    for (const s of model.shapes) {
+      const { x, y } = s;
+      s.x = Math.max(0, Math.round(k * (y + s.height / 2) - s.width / 2));
+      s.y = Math.max(0, Math.round(x + s.width / 2 - s.height / 2));
+    }
+    for (const conn of model.connections) {
+      conn.fromPort = swap[conn.fromPort];
+      conn.toPort = swap[conn.toPort];
+      conn.points = conn.points.map((p) => ({ x: Math.round(p.y * k), y: p.x }));
+    }
+    [model.colWidth, model.rowHeight] = [across, model.colWidth];
+    model.orientation =
+      model.orientation === "vertical" ? "horizontal" : "vertical";
   }
   function snapshot() {
     return JSON.stringify(model);
@@ -446,18 +515,21 @@
     const routes = new Map(
       model.connections.map((c) => [c.id, route(c, positions)]),
     );
-    let w = model.stages.length * model.colWidth;
-    let h = model.lanes.length * model.rowHeight;
-    for (const p of positions.values()) {
-      w = Math.max(w, p.x + p.w + PAD);
-      h = Math.max(h, p.y + p.h + PAD);
-    }
+    // Raw content extents (shapes, routes, labels) without grid or padding.
+    let minX = Infinity,
+      minY = Infinity,
+      maxX = 0,
+      maxY = 0;
+    const include = (x1, y1, x2, y2) => {
+      minX = Math.min(minX, x1);
+      minY = Math.min(minY, y1);
+      maxX = Math.max(maxX, x2);
+      maxY = Math.max(maxY, y2);
+    };
+    for (const p of positions.values()) include(p.x, p.y, p.x + p.w, p.y + p.h);
     for (const c of model.connections) {
       const points = routes.get(c.id);
-      for (const p of points) {
-        w = Math.max(w, p.x + PAD);
-        h = Math.max(h, p.y + PAD);
-      }
+      for (const p of points) include(p.x, p.y, p.x, p.y);
       if (c.label) {
         const mid = midpoint(points);
         const lines = wrap(c.label, 180, 12);
@@ -466,24 +538,73 @@
           200,
           Math.max(...lines.map((v) => measure.measureText(v).width)) + 18,
         );
-        w = Math.max(w, mid.x + labelWidth / 2 + PAD);
-        h = Math.max(h, mid.y + (lines.length * 15 + 10) / 2 + PAD);
+        const labelHeight = lines.length * 15 + 10;
+        include(
+          mid.x - labelWidth / 2,
+          mid.y - labelHeight / 2,
+          mid.x + labelWidth / 2,
+          mid.y + labelHeight / 2,
+        );
       }
     }
+    if (minX === Infinity) minX = minY = 0;
     return (layoutCache = {
       key,
       positions,
       routes,
-      bounds: {
-        width: SIDE + w + PAD,
-        height: TOP + HEADER + h + PAD + (model.document.showFooter ? 44 : 0),
-        contentW: w,
-        contentH: h,
-      },
+      content: { minX: Math.max(0, minX), minY: Math.max(0, minY), maxX, maxY },
     });
   }
+  // Canvas frame: where content coordinates start (ox/oy) and the SVG size.
+  // Flowchart exports are cropped to the content; the editor keeps free space.
+  function frameFor(exporting = false) {
+    const c = layout().content,
+      footer = model.document.showFooter ? 44 : 0;
+    if (model.mode !== "flowchart") {
+      const a = gridAxes(),
+        w = Math.max(a.cols.length * model.colWidth, c.maxX + PAD),
+        h = Math.max(a.rows.length * model.rowHeight, c.maxY + PAD);
+      return {
+        ox: SIDE,
+        oy: TOP + HEADER,
+        width: SIDE + w + PAD,
+        height: TOP + HEADER + h + PAD + footer,
+        contentW: w,
+        contentH: h,
+      };
+    }
+    const top = TOP + 8;
+    if (!exporting) {
+      const w = Math.max(c.maxX + 320, 1100),
+        h = Math.max(c.maxY + 240, 620);
+      return {
+        ox: PAD,
+        oy: top,
+        width: PAD + w,
+        height: top + h + footer,
+        contentW: w,
+        contentH: h,
+      };
+    }
+    const w = c.maxX - c.minX,
+      h = c.maxY - c.minY;
+    measure.font = "700 23px Arial";
+    const titleW = Math.min(
+      1600,
+      measure.measureText(model.document.title || "Untitled process").width +
+        48,
+    );
+    return {
+      ox: PAD - c.minX,
+      oy: top - c.minY,
+      width: Math.max(PAD + w + PAD, titleW, 360),
+      height: top + h + PAD + footer,
+      contentW: w,
+      contentH: h,
+    };
+  }
   function extents() {
-    return layout().bounds;
+    return frameFor(false);
   }
   function schedule() {
     if (!frame)
@@ -492,9 +613,9 @@
         render();
       });
   }
-  function render() {
+  function render(exporting = false) {
     const svg = $("diagram"),
-      bounds = extents();
+      bounds = frameFor(exporting);
     const active = document.activeElement;
     const focusIdentity = svg.contains(active)
       ? ["data-node", "data-conn", "data-id"]
@@ -575,99 +696,38 @@
       anchor: "start",
       maxLines: 1,
     });
-    element(
-      "rect",
-      { x: 0, y: TOP, width: SIDE, height: HEADER, fill: "#123c4c" },
-      svg,
-    );
-    svgText(svg, "RESPONSIBILITY", SIDE / 2, TOP + HEADER / 2, SIDE - 20, {
-      size: 10,
-      weight: 700,
-      color: "#c5e4e6",
-    });
-    for (let i = 0; i < model.stages.length; i++) {
-      const st = model.stages[i];
-      const g = element(
-        "g",
-        {
-          "data-grid": "stage",
-          "data-id": st.id,
-          tabindex: 0,
-          role: "button",
-          "aria-label": `Edit stage ${st.title}`,
-        },
-        svg,
-      );
-      element(
-        "rect",
-        {
-          x: SIDE + i * model.colWidth,
-          y: TOP,
-          width: model.colWidth,
-          height: HEADER,
-          fill: i % 2 ? "#107b73" : "#0f766e",
-          stroke: "#ffffff55",
-        },
-        g,
-      );
-      svgText(
-        g,
-        st.title,
-        SIDE + (i + 0.5) * model.colWidth,
-        TOP + HEADER / 2,
-        model.colWidth - 24,
-        { size: 14, weight: 700, color: "white", maxLines: 2 },
-      );
-    }
-    for (let i = 0; i < model.lanes.length; i++) {
-      const lane = model.lanes[i],
-        y = TOP + HEADER + i * model.rowHeight;
-      const g = element(
-        "g",
-        {
-          "data-grid": "lane",
-          "data-id": lane.id,
-          tabindex: 0,
-          role: "button",
-          "aria-label": `Edit responsibility ${lane.title}`,
-        },
-        svg,
-      );
-      element(
-        "rect",
-        {
-          x: 0,
-          y,
-          width: SIDE,
-          height: model.rowHeight,
-          fill: i % 2 ? "#214459" : "#193b4e",
-          stroke: "#476273",
-        },
-        g,
-      );
-      svgText(g, lane.title, SIDE / 2, y + model.rowHeight / 2, SIDE - 24, {
-        size: 14,
-        weight: 600,
-        color: "white",
-        maxLines: Math.max(1, Math.floor((model.rowHeight - 20) / 18)),
-      });
-      for (let j = 0; j < model.stages.length; j++)
+    if (model.mode === "flowchart") {
+      if (!exporting) {
+        const dots = element(
+          "pattern",
+          {
+            id: "dot-grid",
+            width: 20,
+            height: 20,
+            patternUnits: "userSpaceOnUse",
+            x: bounds.ox,
+            y: bounds.oy,
+          },
+          defs,
+        );
+        element("circle", { cx: 1, cy: 1, r: 1, fill: "#cfdbe4" }, dots);
         element(
           "rect",
           {
-            x: SIDE + j * model.colWidth,
-            y,
-            width: model.colWidth,
-            height: model.rowHeight,
-            fill: i % 2 ? "#f0f5f8" : "#f8fafb",
-            stroke: "#d8e2e9",
+            x: bounds.ox,
+            y: bounds.oy,
+            width: bounds.contentW,
+            height: bounds.contentH,
+            fill: "url(#dot-grid)",
+            class: "editor-only",
           },
           svg,
         );
-    }
+      }
+    } else renderGrid(svg);
     const content = element(
       "g",
-      { transform: `translate(${SIDE} ${TOP + HEADER})` },
+      { transform: `translate(${bounds.ox} ${bounds.oy})` },
       svg,
     );
     const { positions, routes } = layout();
@@ -740,6 +800,101 @@
     }
     $("diagram-stats").textContent =
       `${model.shapes.length} shapes · ${model.connections.length} connectors`;
+  }
+  function renderGrid(svg) {
+    const vertical = model.orientation === "vertical",
+      a = gridAxes(),
+      colKind = vertical ? "lane" : "stage",
+      rowKind = vertical ? "stage" : "lane";
+    const look = (kind, i) =>
+      kind === "stage"
+        ? {
+            fill: i % 2 ? "#107b73" : "#0f766e",
+            stroke: "#ffffff55",
+            weight: 700,
+            label: "stage",
+          }
+        : {
+            fill: i % 2 ? "#214459" : "#193b4e",
+            stroke: "#476273",
+            weight: 600,
+            label: "responsibility",
+          };
+    const header = (kind, item, i, x, y, width, height, maxLines) => {
+      const st = look(kind, i);
+      const g = element(
+        "g",
+        {
+          "data-grid": kind,
+          "data-id": item.id,
+          tabindex: 0,
+          role: "button",
+          "aria-label": `Edit ${st.label} ${item.title}`,
+        },
+        svg,
+      );
+      element("rect", { x, y, width, height, fill: st.fill, stroke: st.stroke }, g);
+      svgText(g, item.title, x + width / 2, y + height / 2, width - 24, {
+        size: 14,
+        weight: st.weight,
+        color: "white",
+        maxLines,
+      });
+    };
+    element(
+      "rect",
+      { x: 0, y: TOP, width: SIDE, height: HEADER, fill: "#123c4c" },
+      svg,
+    );
+    svgText(
+      svg,
+      vertical ? "STAGE" : "RESPONSIBILITY",
+      SIDE / 2,
+      TOP + HEADER / 2,
+      SIDE - 20,
+      { size: 10, weight: 700, color: "#c5e4e6" },
+    );
+    a.cols.forEach((item, i) =>
+      header(
+        colKind,
+        item,
+        i,
+        SIDE + i * model.colWidth,
+        TOP,
+        model.colWidth,
+        HEADER,
+        2,
+      ),
+    );
+    a.rows.forEach((item, i) =>
+      header(
+        rowKind,
+        item,
+        i,
+        0,
+        TOP + HEADER + i * model.rowHeight,
+        SIDE,
+        model.rowHeight,
+        Math.max(1, Math.floor((model.rowHeight - 20) / 18)),
+      ),
+    );
+    // Shade cells by responsibility so each lane reads as one band.
+    for (let i = 0; i < a.rows.length; i++)
+      for (let j = 0; j < a.cols.length; j++) {
+        const shade = (vertical ? j : i) % 2;
+        element(
+          "rect",
+          {
+            x: SIDE + j * model.colWidth,
+            y: TOP + HEADER + i * model.rowHeight,
+            width: model.colWidth,
+            height: model.rowHeight,
+            fill: shade ? "#f0f5f8" : "#f8fafb",
+            stroke: "#d8e2e9",
+          },
+          svg,
+        );
+      }
   }
   function renderShape(parent, s, p) {
     const selected = selection.has(s.id);
@@ -1196,6 +1351,23 @@
       if (document.activeElement !== $(key)) $(key).value = value;
     }
     $("doc-footer").checked = d.showFooter;
+    const flow = model.mode === "flowchart",
+      vertical = model.orientation === "vertical";
+    $("layout-select").value = layoutName();
+    for (const el of document.querySelectorAll(".grid-only")) el.hidden = flow;
+    $("col-width-label").textContent = vertical
+      ? "Responsibility width"
+      : "Stage width";
+    $("row-height-label").textContent = vertical
+      ? "Stage height"
+      : "Responsibility height";
+    $("grid-order-note").textContent = vertical
+      ? "Stages run top to bottom; responsibilities run left to right. Reordering carries the associated shapes with it."
+      : "Stages run left to right; responsibilities run top to bottom. Reordering carries the associated shapes with it.";
+    $("diagram").setAttribute(
+      "aria-label",
+      flow ? "Flowchart diagram" : "Swimlane diagram",
+    );
     renderGridList("stage");
     renderGridList("lane");
     status();
@@ -1362,6 +1534,7 @@
         max: 1200,
       });
       panel.append(row);
+      if (model.mode !== "flowchart") {
       field(
         panel,
         "Stage",
@@ -1382,6 +1555,7 @@
           }),
         { type: "select", options: model.lanes },
       );
+      }
       const zrow = html("div", { class: "selection-actions" });
       zrow.append(
         button("Bring forward", () =>
@@ -1708,11 +1882,31 @@
           : "Drag to move · Shift-click for groups · Double-click to edit";
     schedule();
   }
+  function setLayout(value) {
+    if (!LAYOUTS.includes(value) || value === layoutName()) return;
+    cancelGesture();
+    const mode = value === "flowchart" ? "flowchart" : "swimlane",
+      orientation = value === "flowchart" ? model.orientation : value,
+      rotated = orientation !== model.orientation;
+    mutate(() => {
+      if (rotated) transpose();
+      model.mode = mode;
+    });
+    fit();
+    toast(
+      value === "flowchart"
+        ? "Flowchart layout: lanes are hidden. Switch back any time to show them again."
+        : rotated
+          ? `${value === "vertical" ? "Vertical" : "Horizontal"} swimlanes: the diagram was rotated to follow the new lane direction. Undo reverts.`
+          : "Swimlanes shown.",
+    );
+  }
   function canvasPoint(e) {
-    const r = $("diagram").getBoundingClientRect();
+    const r = $("diagram").getBoundingClientRect(),
+      f = frameFor(false);
     return {
-      x: (e.clientX - r.left) / zoom - SIDE,
-      y: (e.clientY - r.top) / zoom - TOP - HEADER,
+      x: (e.clientX - r.left) / zoom - f.ox,
+      y: (e.clientY - r.top) / zoom - f.oy,
     };
   }
   function selectNode(key, add = false) {
@@ -2171,8 +2365,9 @@
     openFile(file);
   });
   function cleanSVG() {
-    render();
+    render(true);
     const copy = $("diagram").cloneNode(true);
+    render();
     copy.querySelectorAll(".editor-only").forEach((el) => el.remove());
     copy.querySelectorAll("[data-node]").forEach((el) => {
       if (
@@ -2237,7 +2432,7 @@
     exportBusy = true;
     try {
       const xml = cleanSVG(),
-        b = extents();
+        b = frameFor(true);
       let scale = Number($("export-scale").value);
       const maxSide = 16000,
         maxPixels = 60000000;
@@ -2312,10 +2507,11 @@
     }
   }
   function newDiagram() {
+    let choice;
     const apply = () => {
       const before = remember();
       cancelGesture();
-      model = initial();
+      model = initial(choice.value);
       selection.clear();
       selectedConnection = null;
       finish(before);
@@ -2324,14 +2520,23 @@
     };
     dialog(
       "Create a new diagram?",
-      (body) =>
+      (body) => {
+        choice = field(body, "Layout", layoutName(), () => {}, {
+          type: "select",
+          options: [
+            { id: "horizontal", title: "Horizontal swimlanes" },
+            { id: "vertical", title: "Vertical swimlanes" },
+            { id: "flowchart", title: "Flowchart (no lanes)" },
+          ],
+        });
         body.append(
           html(
             "p",
             {},
             "Save your current diagram first if you want a portable copy. Undo can also restore it after creating a new diagram.",
           ),
-        ),
+        );
+      },
       [
         { label: "Cancel" },
         {
@@ -2414,8 +2619,8 @@
     mutate(() => (model.document.showFooter = $("doc-footer").checked)),
   );
   for (const [key, prop, min, max] of [
-    ["col-width", "colWidth", 150, 800],
-    ["row-height", "rowHeight", 100, 800],
+    ["col-width", "colWidth", GRID_MIN, GRID_MAX],
+    ["row-height", "rowHeight", GRID_MIN, GRID_MAX],
   ])
     $(key).addEventListener("change", () => {
       try {
@@ -2434,6 +2639,9 @@
         $(key).value = model[prop];
       }
     });
+  $("layout-select").addEventListener("change", (e) =>
+    setLayout(e.target.value),
+  );
   $("help-button").onclick = () => $("help-dialog").showModal();
   $("close-help").onclick = () => $("help-dialog").close();
   document.addEventListener("keydown", (e) => {
@@ -2655,7 +2863,7 @@
   requestAnimationFrame(fit);
   // Public, read-only diagnostics are useful when reporting file compatibility problems.
   window.SwimlaneBuilder = Object.freeze({
-    version: "2.0.0",
+    version: "2.1.0",
     getDiagram: () => clone(model),
     validateDiagram: (raw) => clone(normalize(raw)),
   });
