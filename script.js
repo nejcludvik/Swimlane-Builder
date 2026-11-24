@@ -552,6 +552,7 @@
       key,
       positions,
       routes,
+      hops: crossings(routes),
       content: { minX: Math.max(0, minX), minY: Math.max(0, minY), maxX, maxY },
     });
   }
@@ -732,9 +733,9 @@
       { transform: `translate(${bounds.ox} ${bounds.oy})` },
       svg,
     );
-    const { positions, routes } = layout();
+    const { positions, routes, hops } = layout();
     for (const c of model.connections)
-      renderConnection(content, c, positions, routes.get(c.id));
+      renderConnection(content, c, positions, routes.get(c.id), hops.get(c.id));
     for (const s of [...model.shapes].sort((a, b) => a.z - b.z))
       renderShape(content, s, positions.get(s.id));
     for (const guide of guides)
@@ -1197,6 +1198,45 @@
     // Crowded/overlapping diagrams can have no clear route; provide a deterministic fallback.
     return compact(candidates[0]);
   }
+  // Small misalignments between facing ports (e.g. bottom → top with the
+  // shapes a few pixels apart) would produce a tiny jog. Instead, draw one
+  // straight line and let it land slightly off-centre on whichever shape has
+  // a flat edge there. Diamond tips and rounded ends stay pinned.
+  const STRAIGHTEN = 16;
+  function straighten(c, positions, a, b) {
+    const facing = { bottom: "top", top: "bottom", right: "left", left: "right" };
+    if (facing[c.fromPort] !== c.toPort) return null;
+    const vertical = c.fromPort === "top" || c.fromPort === "bottom",
+      along = vertical ? "y" : "x",
+      across = vertical ? "x" : "y";
+    if ((b[along] - a[along]) * vector(c.fromPort)[along] <= 0) return null;
+    const offset = b[across] - a[across];
+    if (Math.abs(offset) < 0.5 || Math.abs(offset) > STRAIGHTEN) return null;
+    // How far an endpoint may slide along the shape's edge and stay on a flat part.
+    const slack = (id) => {
+      const shape = model.shapes.find((s) => s.id === id),
+        p = positions.get(id);
+      if (!shape || shape.type === "decision") return 0;
+      if (shape.type === "start" || shape.type === "end")
+        return vertical ? p.w / 2 - p.h / 2 - 4 : 0;
+      return (vertical ? p.w : p.h) / 2 - 10;
+    };
+    let line;
+    if (slack(c.to) >= Math.abs(offset)) line = a[across];
+    else if (slack(c.from) >= Math.abs(offset)) line = b[across];
+    else return null;
+    const p1 = { ...a, [across]: line },
+      p2 = { ...b, [across]: line };
+    const others = [...positions.entries()]
+      .filter(
+        ([key]) =>
+          key !== c.from &&
+          key !== c.to &&
+          model.shapes.find((s) => s.id === key)?.type !== "text",
+      )
+      .map(([, p]) => ({ x: p.x - 4, y: p.y - 4, w: p.w + 8, h: p.h + 8 }));
+    return blocked(p1, p2, others) ? null : [p1, p2];
+  }
   function route(c, positions) {
     const a = portPoint(positions.get(c.from), c.fromPort),
       b = portPoint(positions.get(c.to), c.toPort),
@@ -1227,10 +1267,68 @@
       out.push(b);
       return compact(out);
     }
-    return compact([a, ...avoid(a1, b1, rects), b]);
+    return (
+      straighten(c, positions, a, b) ||
+      compact([a, ...avoid(a1, b1, rects), b])
+    );
   }
-  function pathD(points) {
-    return points.map((p, i) => `${i ? "L" : "M"}${p.x},${p.y}`).join(" ");
+  // Line jumps: where connectors cross, the horizontal segment bridges over
+  // the vertical one with a small arc. Nearby jumps merge into one wider arc.
+  const HOP = 7;
+  function crossings(routes) {
+    const segs = [];
+    for (const [id, pts] of routes)
+      for (let i = 0; i < pts.length - 1; i++)
+        segs.push({ id, i, a: pts[i], b: pts[i + 1] });
+    const flat = (s) => Math.abs(s.a.y - s.b.y) < 0.5 && Math.abs(s.a.x - s.b.x) >= 0.5,
+      upright = (s) => Math.abs(s.a.x - s.b.x) < 0.5 && Math.abs(s.a.y - s.b.y) >= 0.5;
+    const verticals = segs.filter(upright),
+      out = new Map();
+    for (const h of segs) {
+      if (!flat(h)) continue;
+      const y = h.a.y,
+        lo = Math.min(h.a.x, h.b.x),
+        hi = Math.max(h.a.x, h.b.x);
+      const xs = [];
+      for (const v of verticals) {
+        if (v.id === h.id) continue;
+        const x = v.a.x,
+          vlo = Math.min(v.a.y, v.b.y),
+          vhi = Math.max(v.a.y, v.b.y);
+        if (x > lo + HOP + 1 && x < hi - HOP - 1 && y > vlo + 1 && y < vhi - 1)
+          xs.push(x);
+      }
+      if (!xs.length) continue;
+      xs.sort((a, b) => a - b);
+      const spans = [];
+      for (const x of xs) {
+        const last = spans.at(-1);
+        if (last && x - HOP <= last.to + 3) last.to = x + HOP;
+        else spans.push({ from: x - HOP, to: x + HOP });
+      }
+      if (!out.has(h.id)) out.set(h.id, new Map());
+      out.get(h.id).set(h.i, spans);
+    }
+    return out;
+  }
+  function pathD(points, hops) {
+    if (!points.length) return "";
+    let d = `M${points[0].x},${points[0].y}`;
+    for (let i = 1; i < points.length; i++) {
+      const a = points[i - 1],
+        b = points[i],
+        spans = hops?.get(i - 1);
+      if (spans) {
+        const forward = b.x > a.x;
+        for (const span of forward ? spans : [...spans].reverse()) {
+          const [from, to] = forward ? [span.from, span.to] : [span.to, span.from];
+          // Sweep direction chosen so the arc always bulges upwards.
+          d += ` L${from},${a.y} A${(span.to - span.from) / 2},${HOP} 0 0 ${forward ? 1 : 0} ${to},${a.y}`;
+        }
+      }
+      d += ` L${b.x},${b.y}`;
+    }
+    return d;
   }
   function midpoint(points) {
     let length = 0;
@@ -1252,7 +1350,7 @@
     }
     return points[0];
   }
-  function renderConnection(parent, c, positions, cachedPoints) {
+  function renderConnection(parent, c, positions, cachedPoints, hops) {
     const points = cachedPoints || route(c, positions),
       selected = selectedConnection === c.id,
       g = element(
@@ -1268,7 +1366,7 @@
     element(
       "path",
       {
-        d: pathD(points),
+        d: pathD(points, hops),
         fill: "none",
         stroke: "transparent",
         "stroke-width": 20,
@@ -1279,7 +1377,7 @@
     element(
       "path",
       {
-        d: pathD(points),
+        d: pathD(points, hops),
         fill: "none",
         stroke: selected ? "#0284c7" : "#526979",
         "stroke-width": selected ? 2.5 : 1.8,
@@ -1465,6 +1563,30 @@
       panel.append(
         button("Reset automatic route", () => mutate(() => (c.points = []))),
       );
+      // Facing ports that are slightly out of line: offer to move the destination
+      // shape so the connector becomes one straight line.
+      const facing = { bottom: "top", top: "bottom", right: "left", left: "right" };
+      if (facing[c.fromPort] === c.toPort) {
+        const vertical = c.fromPort === "top" || c.fromPort === "bottom",
+          src = position(model.shapes.find((s) => s.id === c.from)),
+          dst = model.shapes.find((s) => s.id === c.to),
+          dp = position(dst),
+          offset = vertical
+            ? src.x + src.w / 2 - (dp.x + dp.w / 2)
+            : src.y + src.h / 2 - (dp.y + dp.h / 2);
+        if (Math.abs(offset) >= 0.5)
+          panel.append(
+            button("Straighten (move destination shape)", () =>
+              mutate(() =>
+                place(
+                  dst,
+                  vertical ? dp.x + offset : dp.x,
+                  vertical ? dp.y : dp.y + offset,
+                ),
+              ),
+            ),
+          );
+      }
       panel.append(
         button("Delete connector", deleteSelection, { class: "danger" }),
       );
